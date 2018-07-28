@@ -1,0 +1,51 @@
+# -*- Mode: python; py-indent-offset: 4; indent-tabs-mode: nil; coding: utf-8; -*-
+
+# def options(opt):
+#     pass
+
+# def configure(conf):
+#     conf.check_nonfatal(header_name='stdint.h', define_name='HAVE_STDINT_H')
+
+def build(bld):
+    module = bld.create_ns3_module('dcn', ['network','internet'])
+    module.source = [
+        # 'helper/ip-l3_5-protocol-helper.cc',
+        # 'model/qbb-net-device.cc',
+        # 'model/pause-header.cc',
+        # 'model/point-to-point-net-device.cc',
+        # 'model/broadcom-egress-queue.cc',
+        # 'model/broadcom-node.cc',
+        # 'model/ppp-header.cc',
+        # 'model/qbb-channel.cc',
+        # 'model/node.cc',
+        # 'model/drop-tail-queue.cc',
+        # 'model/node-list.cc',
+    ]
+
+    module_test = bld.create_ns3_module_test_library('dcn')
+    module_test.source = [
+    ]
+
+    headers = bld(features='ns3header')
+    headers.module = 'dcn'
+    headers.source = [
+        # 'helper/ip-l3_5-protocol-helper.h',
+        # 'model/qbb-net-device.h',
+        # 'model/pause-header.h',
+        # 'model/point-to-point-net-device.h',
+        # 'model/broadcom-egress-queue.h',
+        # 'model/broadcom-node.h',
+        # 'model/ppp-header.h',
+        # 'model/qbb-channel.h',
+        # 'model/node.h',
+        # 'model/drop-tail-queue.h',
+        # 'model/node-list.h',
+
+    ]
+
+    if bld.env.ENABLE_EXAMPLES:
+        # bld.recurse('examples')
+        pass
+
+    # bld.ns3_python_bindings()
+
