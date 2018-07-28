@@ -6,7 +6,7 @@
 #include "ns3/applications-module.h"
 #include "ns3/traffic-control-module.h"
 #include "ns3/random-variable-stream.h"
-#include "ns3/m-file.h"
+// #include "ns3/m-file.h"
 
 #include <sstream>
 #include <map>
@@ -51,7 +51,7 @@ bool flow_level_ecmp = false;
 // double m_fct=0;
 // uint32_t m_flowsize=30*100000;
 
-EmpiricalRandomVariable fsize,fsize1;
+// EmpiricalRandomVariable fsize,fsize1;
 
 
 NodeContainer m_node;
@@ -88,6 +88,16 @@ QueueDiscContainer queueDiscs;
 
 std::stringstream filePlotQueue;
 std::stringstream filePlotQueueAvg;
+
+//2018.07.28 Modified Version
+uint32_t host_num;
+uint32_t g_counter = 0;
+std::ifstream g_trace_file_forward;
+std::ifstream g_trace_file_backward;
+uint64_t* g_flow_count;
+uint64_t* g_recv_count;
+
+bool turning_flag = false;
 
 void
 CheckQueueSize (Ptr<QueueDisc> queue)
@@ -160,7 +170,7 @@ RxTrace (Ptr<const Packet> packet, const Address &from)
 void
 CalculateThroughput (void)
 {
-  FlowIdTag flowIdTag;
+  // FlowIdTag flowIdTag;
   for (auto it = totalRx.begin (); it != totalRx.end (); ++it)
     {
       double cur = (it->second - lastRx[it->first]) * (double) 8/1e5; /* Convert Application RX Packets to MBits. */
@@ -174,8 +184,14 @@ CalculateThroughput (void)
   
 }
 
+//2018.07.28 Modified Version
 
-
+void PacketSendEvent (Ptr<const Packet> p);
+void PacketRecvEvent (Ptr<const Packet> p, const Address &a);
+void SetSendForward (int c);
+void SetSendBackward (int c);
+void InitApp (uint32_t k, std::string trace_f, std::string trace_b);
+void CleanUp ();
 
 void
 BuildTopo (uint32_t k)
@@ -455,11 +471,11 @@ int
 main (int argc, char *argv[])
 {
   // LogComponentEnable ("DctcpSocket", LOG_LEVEL_DEBUG);
-  fsize.CDF(10.0,0.5);
-  fsize.CDF(20000.0,1.0);
+  // fsize.CDF(10.0,0.5);
+  // fsize.CDF(20000.0,1.0);
 
-  fsize1.CDF(40.0,0.8);
-  fsize1.CDF(80000.0,1.0); 
+  // fsize1.CDF(40.0,0.8);
+  // fsize1.CDF(80000.0,1.0); 
   // m_flowsize = fsize.GetInteger() * 1000;
   // std::cout<<"m_flowsize:   "<<m_flowsize;
 
@@ -476,9 +492,9 @@ main (int argc, char *argv[])
   uint32_t initCwnd = 15;
 
   global_start_time = 0.0;
-  global_stop_time = 3    ;
+  global_stop_time = 100    ;
   sink_start_time = global_start_time;
-  sink_stop_time = 3;//global_stop_time + 60.0;
+  sink_stop_time = 100;//global_stop_time + 60.0;
 
 
   link_data_rate = "10Gbps";
@@ -517,7 +533,10 @@ main (int argc, char *argv[])
   Config::SetDefault ("ns3::TcpSocket::InitialCwnd", UintegerValue (initCwnd));
   Config::SetDefault ("ns3::DctcpSocket::ECNLimit", BooleanValue (ecnLimit));
   BuildTopo (k);
-  BuildAppsTest (k,trace);
+  //BuildAppsTest (k,trace);
+  //2018.07.28 Modified Version
+  LogComponentEnable("DctcpTest", LOG_LEVEL_INFO);
+  InitApp(k, "trace/f.tr", "trace/b.tr");
 
   if (writePcap)
     {
@@ -592,9 +611,151 @@ main (int argc, char *argv[])
         }
     }
   Simulator::Destroy ();
-  m_start2end.close();
-  m_fct.close();
-  m_start.close();
+  // m_start2end.close();
+  // m_fct.close();
+  // m_start.close();
 
   return 0;
+}
+
+void PacketSendEvent (Ptr<const Packet> p)
+{
+  NS_LOG_FUNCTION (Simulator::Now());
+}
+
+void PacketRecvEvent (Ptr<const Packet> p, const Address &a)
+{
+  NS_LOG_FUNCTION (Simulator::Now());
+  FlowIdTag f;
+  bool lastPacket = p->FindFirstMatchingByteTag (f);
+  if (lastPacket)
+  {
+    g_recv_count[g_counter-1] += 1;
+    NS_LOG_INFO ("A Flow is Done. Num." << g_recv_count[g_counter - 1]);
+  }
+  if (g_recv_count[g_counter-1] == g_flow_count[g_counter -1])
+  {
+    NS_LOG_INFO ("A Layer is Done. Num." << g_counter);
+    //then another layer
+    if (g_counter < host_num - 1 && !turning_flag)
+    {
+      NS_LOG_INFO ("Next Layer.");
+      SetSendForward (g_counter++);
+    }
+    else if (!turning_flag)
+    {
+      NS_LOG_INFO ("Turning Point.");
+      turning_flag = true;
+      SetSendBackward (g_counter--);
+    }
+    else if (g_counter > 0)
+    {
+      NS_LOG_INFO ("Next Layer.");
+      SetSendBackward (g_counter--);
+    }
+    else
+    {
+      Simulator::Stop ();
+    }
+  }
+}
+
+void SetSendForward (int c)
+{
+  NS_LOG_FUNCTION (Simulator::Now());
+  double tflow = 0.0;
+  uint32_t tempsize = 0;
+  int flow_count;
+  ApplicationContainer flows;
+  ApplicationContainer sinkApps;
+  uint16_t port = 10000;
+  Address sinkLocalAddress (InetSocketAddress (Ipv4Address::GetAny (), port));
+  PacketSinkHelper sinkHelper ("ns3::TcpSocketFactory", sinkLocalAddress);
+  ApplicationContainer sinkApp = sinkHelper.Install (m_host);
+  sinkApp.Start (Seconds (sink_start_time));
+  sinkApp.Stop (Seconds (sink_stop_time));
+
+  g_trace_file_forward >> flow_count;
+  g_flow_count[c] = flow_count;
+  NS_LOG_INFO (g_flow_count[c] << " to send.");
+  for (int i=0;i<flow_count;i++)
+  {
+      int proi;
+      g_trace_file_forward >> nsender >> nreceiver >> proi >> tempsize >> tflow >> global_stop_time;
+      nsender -= 20;
+      nreceiver -= 20;
+      tempsize *= 1000;
+      m_count++;
+      port++;
+      
+      Ptr<Node> receiver = m_host.Get(nreceiver);
+      Ptr<NetDevice> ren = receiver->GetDevice(0);
+      Ptr<Ipv4> ipv4 = receiver->GetObject<Ipv4> ();
+
+      Ipv4InterfaceAddress r_ip = ipv4->GetAddress (1,0);
+      Ipv4Address r_ipaddr = r_ip.GetLocal();
+
+      // Initialize On/Off Application with addresss of the receiver
+      OnOffHelper source ("ns3::TcpSocketFactory", Address (InetSocketAddress(r_ipaddr, port)));
+      source.SetAttribute ("OnTime", StringValue ("ns3::ConstantRandomVariable[Constant=1]"));
+      source.SetAttribute ("OffTime", StringValue ("ns3::ConstantRandomVariable[Constant=0]"));
+      source.SetAttribute ("DataRate", DataRateValue (DataRate (link_data_rate)));
+      source.SetAttribute ("PacketSize", UintegerValue (packet_size));
+      InetSocketAddress tmp1 = InetSocketAddress (r_ipaddr, port);
+
+      tmp1.SetTos((0B00000010|(0xff&proi<<5)));
+
+      source.SetAttribute ("Remote", AddressValue(tmp1));
+      
+      // Set the amount of data to send in bytes according to the empirical distribution.  
+      //int tempsize = fsize.GetInteger();
+      
+
+      //std::cout << "flow size is " << tempsize << std::endl;
+      source.SetAttribute ("MaxBytes", UintegerValue (tempsize));
+      source.SetAttribute("PacketSize",UintegerValue (packet_size));
+      
+      // Install sink 
+      PacketSinkHelper sink("ns3::TcpSocketFactory", Address(InetSocketAddress(Ipv4Address::GetAny(), port)));
+      sinkApps.Add(sink.Install(m_host.Get(nreceiver)));
+      
+      // Install source to the sender
+      NodeContainer onoff;
+      onoff.Add(m_host.Get(nsender));
+      flows.Add(source.Install (onoff));
+      // Get the current flow
+      Ptr<Application> the_flow = flows.Get(flows.GetN()-1);
+      the_flow->SetStartTime(Seconds(tflow));
+      flows.Stop(Seconds(global_stop_time));
+      sinkApps.Start(Seconds(0));
+      sinkApps.Stop(Seconds(global_stop_time));
+  }
+  Config::ConnectWithoutContext ("/NodeList/*/ApplicationList/*/$ns3::OnOffApplication/Tx", MakeCallback (&PacketSendEvent));
+  Config::ConnectWithoutContext ("/NodeList/*/ApplicationList/*/$ns3::PacketSink/Rx", MakeCallback (&PacketRecvEvent));
+}
+
+void SetSendBackward (int c)
+{
+  NS_LOG_FUNCTION (Simulator::Now());
+  NS_LOG_INFO ("Im hit!");
+  Simulator::Stop();
+}
+
+void InitApp (uint32_t k, std::string trace_f, std::string trace_b)
+{
+  NS_LOG_FUNCTION (Simulator::Now());
+  g_trace_file_forward.open(trace_f);
+  g_trace_file_backward.open(trace_b);
+  host_num = k*k*k/4;
+  g_flow_count = new uint64_t[host_num]();
+  g_recv_count = new uint64_t[host_num]();
+  SetSendForward(g_counter++);
+  Simulator::ScheduleDestroy(&CleanUp);
+}
+
+void CleanUp ()
+{
+  NS_LOG_FUNCTION(Simulator::Now());
+  g_trace_file_forward.close();
+  g_trace_file_backward.close();
 }

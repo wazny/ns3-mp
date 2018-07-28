@@ -45,3 +45,4 @@ massif.*
 *.dat
 .DS_Store
 .directory
+*.flowmon
