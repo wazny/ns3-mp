@@ -90,7 +90,7 @@ std::stringstream filePlotQueue;
 std::stringstream filePlotQueueAvg;
 
 //2018.07.28 Modified Version
-uint32_t host_num;
+uint32_t g_host_num = 0;
 uint32_t g_counter = 0;
 std::ifstream g_trace_file_forward;
 std::ifstream g_trace_file_backward;
@@ -187,11 +187,12 @@ CalculateThroughput (void)
 //2018.07.28 Modified Version
 
 void PacketSendEvent (Ptr<const Packet> p);
-void PacketRecvEventForward (Ptr<const Packet> p, const Address &a);
+void PacketRecvEvent (Ptr<const Packet> p, const Address &a);
 void SetSendForward (int c);
 void SetSendBackward (int c);
 void InitApp (uint32_t k, std::string trace_f, std::string trace_b);
 void CleanUp ();
+void CountReset ();
 
 void
 BuildTopo (uint32_t k)
@@ -625,41 +626,72 @@ void PacketSendEvent (Ptr<const Packet> p)
   NS_LOG_INFO (Simulator::Now() << " sent");
 }
 
-void PacketRecvEventForward (Ptr<const Packet> p, const Address &a)
+void PacketRecvEvent (Ptr<const Packet> p, const Address &a)
 {
   NS_LOG_FUNCTION (Simulator::Now());
-  FlowIdTag f;
-  bool lastPacket = p->FindFirstMatchingByteTag (f);
-  if (lastPacket)
-  {
-    //std::stringstream s;
-    //p->PrintByteTags(s);
-    //NS_LOG_INFO (s.str());
-    g_recv_count[g_counter-1] += 1;
-    NS_LOG_INFO (Simulator::Now() << " A Flow is Done. Num." << g_recv_count[g_counter - 1]);
+  if (turning_flag)
+  {   
+    FlowIdTag f;
+    bool lastPacket = p->FindFirstMatchingByteTag (f);
+    if (lastPacket)
+    {
+      g_recv_count[g_counter+1] += 1;
+      NS_LOG_INFO (Simulator::Now() << " An B-Flow is Done. Num." << g_recv_count[g_counter+1]);
+    }
+    if (g_recv_count[g_counter+1] == g_flow_count[g_counter+1])
+    {
+      NS_LOG_INFO (Simulator::Now () << " An B-Layer is Done. Num." << (g_host_num - 1 - g_counter));
+      //then another layer
+      if (g_counter > 0)
+      {
+        NS_LOG_INFO (Simulator::Now () << " Next B-Layer.");
+        SetSendBackward (g_counter--);
+      }
+      else
+      {
+        NS_LOG_INFO (Simulator::Now () << " Turning to Forward.");
+        turning_flag = false;
+        NS_LOG_INFO (Simulator::Now () << " An iter has done.");
+        CountReset ();
+        Simulator::Stop ();
+      }
+    }
   }
-  // if (p->GetSize () != 0)
-  // {
-  //   g_recv_count[g_counter-1] +=1;
-  //   NS_LOG_INFO (Simulator::Now () << " received " << p->GetSize());
-  // }
-  //NS_LOG_INFO (Simulator::Now() << g_recv_count[g_counter-1] );
-  if (g_recv_count[g_counter-1] == g_flow_count[g_counter -1])
+  else
   {
-    NS_LOG_INFO (Simulator::Now () << " A Layer is Done. Num." << g_counter);
-    //then another layer
-    if (g_counter < host_num - 1 && !turning_flag)
+    FlowIdTag f;
+    bool lastPacket = p->FindFirstMatchingByteTag (f);
+    if (lastPacket)
     {
-      NS_LOG_INFO (Simulator::Now () << " Next Layer.");
-      SetSendForward (g_counter++);
+      //std::stringstream s;
+      //p->PrintByteTags(s);
+      //NS_LOG_INFO (s.str());
+      g_recv_count[g_counter-1] += 1;
+      NS_LOG_INFO (Simulator::Now() << " A Flow is Done. Num." << g_recv_count[g_counter - 1]);
     }
-    else
+    // if (p->GetSize () != 0)
+    // {
+    //   g_recv_count[g_counter-1] +=1;
+    //   NS_LOG_INFO (Simulator::Now () << " received " << p->GetSize());
+    // }
+    //NS_LOG_INFO (Simulator::Now() << g_recv_count[g_counter-1] );
+    if (g_recv_count[g_counter-1] == g_flow_count[g_counter -1])
     {
-      NS_LOG_INFO (Simulator::Now () << " Turning Point.");
-      turning_flag = true;
-      SetSendBackward (g_counter--);
+      NS_LOG_INFO (Simulator::Now () << " An F-Layer is Done. Num." << g_counter);
+      //then another layer
+      if (g_counter < g_host_num - 1)
+      {
+        NS_LOG_INFO (Simulator::Now () << " Next F-Layer.");
+        SetSendForward (g_counter++);
+      }
+      else
+      {
+        NS_LOG_INFO (Simulator::Now () << " Turning to Backward.");
+        turning_flag = true;
+        CountReset ();
+        SetSendBackward (g_counter--);
+      }
     }
-
   }
 }
 
@@ -725,7 +757,7 @@ void SetSendForward (int c)
       PacketSinkHelper sink("ns3::TcpSocketFactory", Address(InetSocketAddress(Ipv4Address::GetAny(), port)));
       sinkApps.Add(sink.Install(m_host.Get(nreceiver)));
       Ptr<Application> the_sink = sinkApps.Get(sinkApps.GetN()-1);
-      the_sink->TraceConnectWithoutContext("Rx", MakeCallback (&PacketRecvEventForward));
+      the_sink->TraceConnectWithoutContext("Rx", MakeCallback (&PacketRecvEvent));
       
       // Install source to the sender
       //NodeContainer onoff;
@@ -747,8 +779,64 @@ void SetSendForward (int c)
 void SetSendBackward (int c)
 {
   NS_LOG_FUNCTION (Simulator::Now());
-  NS_LOG_INFO ("Im hit!");
-  //Simulator::Stop();
+  double tflow = 0.0;
+  uint32_t tempsize = 0;
+  int flow_count;
+  ApplicationContainer flows;
+  ApplicationContainer sinkApps;
+  uint16_t port = 10000;
+
+  g_trace_file_backward >> flow_count;
+  g_flow_count[c] = flow_count;
+  NS_LOG_INFO (g_flow_count[c] << " flows to send.");
+  for (int i=0;i<flow_count;i++)
+  {
+      int proi;
+      g_trace_file_backward >> nsender >> nreceiver >> proi >> tempsize >> tflow >> global_stop_time;
+      nsender -= 20;
+      nreceiver -= 20;
+      tempsize *= 1000;
+      m_count++;
+      port++;
+      
+      Ptr<Node> receiver = m_host.Get(nreceiver);
+      Ptr<NetDevice> ren = receiver->GetDevice(0);
+      Ptr<Ipv4> ipv4 = receiver->GetObject<Ipv4> ();
+
+      Ipv4InterfaceAddress r_ip = ipv4->GetAddress (1,0);
+      Ipv4Address r_ipaddr = r_ip.GetLocal();
+
+      // Initialize On/Off Application with addresss of the receiver
+      OnOffHelper source ("ns3::TcpSocketFactory", Address (InetSocketAddress(r_ipaddr, port)));
+      source.SetAttribute ("OnTime", StringValue ("ns3::ConstantRandomVariable[Constant=1]"));
+      source.SetAttribute ("OffTime", StringValue ("ns3::ConstantRandomVariable[Constant=0]"));
+      source.SetAttribute ("DataRate", DataRateValue (DataRate (link_data_rate)));
+      source.SetAttribute ("PacketSize", UintegerValue (packet_size));
+      InetSocketAddress tmp1 = InetSocketAddress (r_ipaddr, port);
+
+      tmp1.SetTos((0B00000010|(0xff&proi<<5)));
+
+      source.SetAttribute ("Remote", AddressValue(tmp1));
+      source.SetAttribute ("MaxBytes", UintegerValue (tempsize));
+      source.SetAttribute("PacketSize",UintegerValue (packet_size));
+      
+      // Install sink 
+      PacketSinkHelper sink("ns3::TcpSocketFactory", Address(InetSocketAddress(Ipv4Address::GetAny(), port)));
+      sinkApps.Add(sink.Install(m_host.Get(nreceiver)));
+      Ptr<Application> the_sink = sinkApps.Get(sinkApps.GetN()-1);
+      the_sink->TraceConnectWithoutContext("Rx", MakeCallback (&PacketRecvEvent));
+      
+      // Install source to the sender
+      flows.Add(source.Install (m_host.Get(nsender)));
+      // Get the current flow
+      Ptr<Application> the_flow = flows.Get(flows.GetN()-1);
+      the_flow->SetStartTime(Seconds(tflow));
+      the_flow->TraceConnectWithoutContext("Tx", MakeCallback (&PacketSendEvent));
+
+      flows.Stop(Seconds(global_stop_time));
+      sinkApps.Start(Seconds(0));
+      sinkApps.Stop(Seconds(global_stop_time));
+  }
 }
 
 void InitApp (uint32_t k, std::string trace_f, std::string trace_b)
@@ -756,9 +844,9 @@ void InitApp (uint32_t k, std::string trace_f, std::string trace_b)
   NS_LOG_FUNCTION (Simulator::Now());
   g_trace_file_forward.open(trace_f);
   g_trace_file_backward.open(trace_b);
-  host_num = k*k*k/4;
-  g_flow_count = new uint64_t[host_num]();
-  g_recv_count = new uint64_t[host_num]();
+  g_host_num = k*k*k/4;
+  g_flow_count = new uint64_t[g_host_num]();
+  g_recv_count = new uint64_t[g_host_num]();
   SetSendForward(g_counter++);
   Simulator::ScheduleDestroy(&CleanUp);
 }
@@ -768,4 +856,15 @@ void CleanUp ()
   NS_LOG_FUNCTION(Simulator::Now());
   g_trace_file_forward.close();
   g_trace_file_backward.close();
+}
+
+void CountReset ()
+{
+  if (g_host_num != 0)
+  {
+    for (uint32_t i = 0; i < g_host_num; i++)
+    {
+      g_flow_count[i] = g_recv_count[i] = 0;
+    }
+  }
 }
