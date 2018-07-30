@@ -628,21 +628,21 @@ void PacketSendEvent (Ptr<const Packet> p)
 void PacketRecvEventForward (Ptr<const Packet> p, const Address &a)
 {
   NS_LOG_FUNCTION (Simulator::Now());
-  // FlowIdTag f;
-  // bool lastPacket = p->FindFirstMatchingByteTag (f);
-  // if (!lastPacket)
-  // {
-  //   //std::stringstream s;
-  //   //p->PrintByteTags(s);
-  //   //NS_LOG_INFO (s.str());
-  //   g_recv_count[g_counter-1] += 1;
-  //   NS_LOG_INFO ("A Flow is Done. Num." << g_recv_count[g_counter - 1]);
-  // }
-  if (p->GetSize () != 0)
+  FlowIdTag f;
+  bool lastPacket = p->FindFirstMatchingByteTag (f);
+  if (lastPacket)
   {
-    g_recv_count[g_counter-1] +=1;
-    NS_LOG_INFO (Simulator::Now () << " received " << p->GetSize());
+    //std::stringstream s;
+    //p->PrintByteTags(s);
+    //NS_LOG_INFO (s.str());
+    g_recv_count[g_counter-1] += 1;
+    NS_LOG_INFO (Simulator::Now() << " A Flow is Done. Num." << g_recv_count[g_counter - 1]);
   }
+  // if (p->GetSize () != 0)
+  // {
+  //   g_recv_count[g_counter-1] +=1;
+  //   NS_LOG_INFO (Simulator::Now () << " received " << p->GetSize());
+  // }
   //NS_LOG_INFO (Simulator::Now() << g_recv_count[g_counter-1] );
   if (g_recv_count[g_counter-1] == g_flow_count[g_counter -1])
   {
@@ -655,7 +655,7 @@ void PacketRecvEventForward (Ptr<const Packet> p, const Address &a)
     }
     else
     {
-      NS_LOG_INFO (Simulator::Now () << "Turning Point.");
+      NS_LOG_INFO (Simulator::Now () << " Turning Point.");
       turning_flag = true;
       SetSendBackward (g_counter--);
     }
@@ -669,7 +669,7 @@ void SetSendForward (int c)
   double tflow = 0.0;
   uint32_t tempsize = 0;
   int flow_count;
-  int packet_count = 0;
+  // int packet_count = 0;
   ApplicationContainer flows;
   ApplicationContainer sinkApps;
   uint16_t port = 10000;
@@ -680,8 +680,8 @@ void SetSendForward (int c)
   // sinkApp.Stop (Seconds (sink_stop_time));
 
   g_trace_file_forward >> flow_count;
-  //g_flow_count[c] = flow_count;
-  //NS_LOG_INFO (g_flow_count[c] << " to send.");
+  g_flow_count[c] = flow_count;
+  NS_LOG_INFO (g_flow_count[c] << " flows to send.");
   for (int i=0;i<flow_count;i++)
   {
       int proi;
@@ -719,7 +719,7 @@ void SetSendForward (int c)
       source.SetAttribute ("MaxBytes", UintegerValue (tempsize));
       source.SetAttribute("PacketSize",UintegerValue (packet_size));
 
-      packet_count += (tempsize / packet_size + 1);
+      // packet_count += (tempsize / packet_size + 1);
       
       // Install sink 
       PacketSinkHelper sink("ns3::TcpSocketFactory", Address(InetSocketAddress(Ipv4Address::GetAny(), port)));
@@ -740,8 +740,8 @@ void SetSendForward (int c)
       sinkApps.Start(Seconds(0));
       sinkApps.Stop(Seconds(global_stop_time));
   }
-  g_flow_count[c] = packet_count;
-  NS_LOG_INFO (Simulator::Now () << " " << g_flow_count[c] << " packets to send.");
+  // g_flow_count[c] = packet_count;
+  // NS_LOG_INFO (Simulator::Now () << " " << g_flow_count[c] << " packets to send.");
 }
 
 void SetSendBackward (int c)

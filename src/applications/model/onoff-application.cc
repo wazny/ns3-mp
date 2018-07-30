@@ -302,11 +302,11 @@ void OnOffApplication::SendPacket ()
   NS_ASSERT (m_sendEvent.IsExpired ());
   Ptr<Packet> packet = Create<Packet> (m_pktSize);
   //2018.07.28 Modified Version
-  // if (m_maxBytes > m_pktSize + m_totBytes)
-  // {
-  //   FlowIdTag f;
-  //   packet->AddByteTag(f);
-  // }
+  if (m_maxBytes < m_pktSize + m_totBytes)
+  {
+    FlowIdTag f;
+    packet->AddByteTag(f);
+  }
   m_txTrace (packet);
   //std::cout<<m_socket->Send (packet)<<std::endl;
   //std::cout<<Simulator::Now ().GetSeconds ()<<"     "<<StaticCast<TcpSocketBase>(m_socket) ->GetTxBuffer()->Size()<<"    "<<StaticCast<TcpSocketBase>(m_socket) ->GetTxBuffer()->MaxBufferSize()<<std::endl;
