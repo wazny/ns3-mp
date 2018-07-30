@@ -96,8 +96,9 @@ std::ifstream g_trace_file_forward;
 std::ifstream g_trace_file_backward;
 uint64_t* g_flow_count;
 uint64_t* g_recv_count;
-
-bool turning_flag = false;
+uint32_t g_iter_times = 0;
+uint32_t g_iter_count = 0;
+bool g_is_forward = true;
 
 void
 CheckQueueSize (Ptr<QueueDisc> queue)
@@ -188,9 +189,10 @@ CalculateThroughput (void)
 
 void PacketSendEvent (Ptr<const Packet> p);
 void PacketRecvEvent (Ptr<const Packet> p, const Address &a);
-void SetSendForward (int c);
-void SetSendBackward (int c);
-void InitApp (uint32_t k, std::string trace_f, std::string trace_b);
+void SendForward (int c);
+void SendBackward (int c);
+void InitApp (uint32_t k, uint32_t i, std::string trace_f, std::string trace_b);
+void NextIter ();
 void CleanUp ();
 void CountReset ();
 
@@ -537,8 +539,8 @@ main (int argc, char *argv[])
   //BuildAppsTest (k,trace);
   //2018.07.28 Modified Version
   LogComponentEnable("DctcpTest", LOG_LEVEL_INFO);
-  LogComponentEnable("PacketSink", LOG_LEVEL_INFO);
-  InitApp(k, "trace/f.tr", "trace/b.tr");
+  //LogComponentEnable("PacketSink", LOG_LEVEL_INFO);
+  InitApp(k, 2, "trace/f.tr", "trace/b.tr");
 
   if (writePcap)
     {
@@ -623,79 +625,65 @@ main (int argc, char *argv[])
 void PacketSendEvent (Ptr<const Packet> p)
 {
   NS_LOG_FUNCTION (Simulator::Now());
-  NS_LOG_INFO (Simulator::Now() << " sent");
+  //NS_LOG_INFO (Simulator::Now() << " sent");
 }
 
 void PacketRecvEvent (Ptr<const Packet> p, const Address &a)
 {
   NS_LOG_FUNCTION (Simulator::Now());
-  if (turning_flag)
-  {   
-    FlowIdTag f;
-    bool lastPacket = p->FindFirstMatchingByteTag (f);
-    if (lastPacket)
+  FlowIdTag f;
+  bool lastPacket = p->FindFirstMatchingByteTag (f);
+  if (lastPacket)
+  {
+    if (g_is_forward)
     {
+        g_recv_count[g_counter-1] += 1;
+        NS_LOG_INFO (Simulator::Now() << " An F-Flow is Done. Num." << g_recv_count[g_counter - 1]);
+        if (g_recv_count[g_counter-1] == g_flow_count[g_counter -1])
+        {
+          NS_LOG_INFO (Simulator::Now () << " An F-Layer is Done. Num." << g_counter);
+          //then another layer
+          if (g_counter < g_host_num - 1)
+          {
+            NS_LOG_INFO (Simulator::Now () << " Next F-Layer.");
+            SendForward (g_counter++);
+          }
+          else
+          {
+            NS_LOG_INFO (Simulator::Now () << " Turning to Backward.");
+            g_is_forward = false;
+            CountReset ();
+            SendBackward (g_counter--);
+          }
+        }
+    }
+    else
+    {   
       g_recv_count[g_counter+1] += 1;
       NS_LOG_INFO (Simulator::Now() << " An B-Flow is Done. Num." << g_recv_count[g_counter+1]);
-    }
-    if (g_recv_count[g_counter+1] == g_flow_count[g_counter+1])
-    {
-      NS_LOG_INFO (Simulator::Now () << " An B-Layer is Done. Num." << (g_host_num - 1 - g_counter));
-      //then another layer
-      if (g_counter > 0)
+      if (g_recv_count[g_counter+1] == g_flow_count[g_counter+1])
       {
-        NS_LOG_INFO (Simulator::Now () << " Next B-Layer.");
-        SetSendBackward (g_counter--);
-      }
-      else
-      {
-        NS_LOG_INFO (Simulator::Now () << " Turning to Forward.");
-        turning_flag = false;
-        NS_LOG_INFO (Simulator::Now () << " An iter has done.");
-        CountReset ();
-        Simulator::Stop ();
-      }
-    }
-  }
-  else
-  {
-    FlowIdTag f;
-    bool lastPacket = p->FindFirstMatchingByteTag (f);
-    if (lastPacket)
-    {
-      //std::stringstream s;
-      //p->PrintByteTags(s);
-      //NS_LOG_INFO (s.str());
-      g_recv_count[g_counter-1] += 1;
-      NS_LOG_INFO (Simulator::Now() << " A Flow is Done. Num." << g_recv_count[g_counter - 1]);
-    }
-    // if (p->GetSize () != 0)
-    // {
-    //   g_recv_count[g_counter-1] +=1;
-    //   NS_LOG_INFO (Simulator::Now () << " received " << p->GetSize());
-    // }
-    //NS_LOG_INFO (Simulator::Now() << g_recv_count[g_counter-1] );
-    if (g_recv_count[g_counter-1] == g_flow_count[g_counter -1])
-    {
-      NS_LOG_INFO (Simulator::Now () << " An F-Layer is Done. Num." << g_counter);
-      //then another layer
-      if (g_counter < g_host_num - 1)
-      {
-        NS_LOG_INFO (Simulator::Now () << " Next F-Layer.");
-        SetSendForward (g_counter++);
-      }
-      else
-      {
-        NS_LOG_INFO (Simulator::Now () << " Turning to Backward.");
-        turning_flag = true;
-        CountReset ();
-        SetSendBackward (g_counter--);
+        NS_LOG_INFO (Simulator::Now () << " An B-Layer is Done. Num." << (g_host_num - 1 - g_counter));
+        //then another layer
+        if (g_counter > 0)
+        {
+          NS_LOG_INFO (Simulator::Now () << " Next B-Layer.");
+          SendBackward (g_counter--);
+        }
+        else
+        {
+          NS_LOG_INFO (Simulator::Now () << " Turning to Forward.");
+          g_is_forward = true;
+          CountReset ();
+          NextIter();
+        }
       }
     }
   }
+
 }
 
-void SetSendForward (int c)
+void SendForward (int c)
 {
   NS_LOG_FUNCTION (Simulator::Now());
   double tflow = 0.0;
@@ -713,7 +701,7 @@ void SetSendForward (int c)
 
   g_trace_file_forward >> flow_count;
   g_flow_count[c] = flow_count;
-  NS_LOG_INFO (g_flow_count[c] << " flows to send.");
+  NS_LOG_INFO (Simulator::Now() << " " << g_flow_count[c] << " flows to send.");
   for (int i=0;i<flow_count;i++)
   {
       int proi;
@@ -776,7 +764,7 @@ void SetSendForward (int c)
   // NS_LOG_INFO (Simulator::Now () << " " << g_flow_count[c] << " packets to send.");
 }
 
-void SetSendBackward (int c)
+void SendBackward (int c)
 {
   NS_LOG_FUNCTION (Simulator::Now());
   double tflow = 0.0;
@@ -788,7 +776,7 @@ void SetSendBackward (int c)
 
   g_trace_file_backward >> flow_count;
   g_flow_count[c] = flow_count;
-  NS_LOG_INFO (g_flow_count[c] << " flows to send.");
+  NS_LOG_INFO (Simulator::Now() << " " << g_flow_count[c] << " flows to send.");
   for (int i=0;i<flow_count;i++)
   {
       int proi;
@@ -839,16 +827,36 @@ void SetSendBackward (int c)
   }
 }
 
-void InitApp (uint32_t k, std::string trace_f, std::string trace_b)
+void InitApp (uint32_t k, uint32_t i, std::string trace_f, std::string trace_b)
 {
   NS_LOG_FUNCTION (Simulator::Now());
   g_trace_file_forward.open(trace_f);
   g_trace_file_backward.open(trace_b);
   g_host_num = k*k*k/4;
+  g_iter_times = i;
+  g_iter_count = 0;
   g_flow_count = new uint64_t[g_host_num]();
   g_recv_count = new uint64_t[g_host_num]();
-  SetSendForward(g_counter++);
+  g_is_forward = true;
+  NextIter ();
   Simulator::ScheduleDestroy(&CleanUp);
+}
+
+void NextIter ()
+{
+  NS_LOG_FUNCTION (Simulator::Now());
+  if (g_iter_count++ < g_iter_times)
+  {
+    NS_LOG_INFO (Simulator::Now() << " Starting Iter " << g_iter_count);
+    g_trace_file_forward.seekg (ios::beg);
+    g_trace_file_backward.seekg (ios::beg);
+    SendForward(g_counter++);
+  }
+  else
+  {
+    NS_LOG_INFO (Simulator::Now() << " Simulation Completed. ");
+    Simulator::Stop ();
+  }
 }
 
 void CleanUp ()
