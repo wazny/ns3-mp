@@ -189,8 +189,7 @@ CalculateThroughput (void)
 
 void PacketSendEvent (Ptr<const Packet> p);
 void PacketRecvEvent (Ptr<const Packet> p, const Address &a);
-void SendForward (int c);
-void SendBackward (int c);
+void BatchSend (uint32_t c);
 void InitApp (uint32_t k, uint32_t i, std::string trace_f, std::string trace_b);
 void NextIter ();
 void CleanUp ();
@@ -646,14 +645,14 @@ void PacketRecvEvent (Ptr<const Packet> p, const Address &a)
           if (g_counter < g_host_num - 1)
           {
             NS_LOG_INFO (Simulator::Now () << " Next F-Layer.");
-            SendForward (g_counter++);
+            BatchSend (g_counter++);
           }
           else
           {
             NS_LOG_INFO (Simulator::Now () << " Turning to Backward.");
             g_is_forward = false;
             CountReset ();
-            SendBackward (g_counter--);
+            BatchSend (g_counter--);
           }
         }
     }
@@ -668,7 +667,7 @@ void PacketRecvEvent (Ptr<const Packet> p, const Address &a)
         if (g_counter > 0)
         {
           NS_LOG_INFO (Simulator::Now () << " Next B-Layer.");
-          SendBackward (g_counter--);
+          BatchSend (g_counter--);
         }
         else
         {
@@ -683,104 +682,37 @@ void PacketRecvEvent (Ptr<const Packet> p, const Address &a)
 
 }
 
-void SendForward (int c)
+void BatchSend (uint32_t c)
 {
   NS_LOG_FUNCTION (Simulator::Now());
   double tflow = 0.0;
   uint32_t tempsize = 0;
   int flow_count;
-  // int packet_count = 0;
+  std::ifstream *fs;
   ApplicationContainer flows;
   ApplicationContainer sinkApps;
   uint16_t port = 10000;
-  // Address sinkLocalAddress (InetSocketAddress (Ipv4Address::GetAny (), port));
-  // PacketSinkHelper sinkHelper ("ns3::TcpSocketFactory", sinkLocalAddress);
-  // ApplicationContainer sinkApp = sinkHelper.Install (m_host);
-  // sinkApp.Start (Seconds (sink_start_time));
-  // sinkApp.Stop (Seconds (sink_stop_time));
 
-  g_trace_file_forward >> flow_count;
-  g_flow_count[c] = flow_count;
-  NS_LOG_INFO (Simulator::Now() << " " << g_flow_count[c] << " flows to send.");
-  for (int i=0;i<flow_count;i++)
+  if (c == g_counter + 1)
   {
-      int proi;
-      g_trace_file_forward >> nsender >> nreceiver >> proi >> tempsize >> tflow >> global_stop_time;
-      nsender -= 20;
-      nreceiver -= 20;
-      tempsize *= 1000;
-      m_count++;
-      port++;
-      
-      Ptr<Node> receiver = m_host.Get(nreceiver);
-      Ptr<NetDevice> ren = receiver->GetDevice(0);
-      Ptr<Ipv4> ipv4 = receiver->GetObject<Ipv4> ();
-
-      Ipv4InterfaceAddress r_ip = ipv4->GetAddress (1,0);
-      Ipv4Address r_ipaddr = r_ip.GetLocal();
-
-      // Initialize On/Off Application with addresss of the receiver
-      OnOffHelper source ("ns3::TcpSocketFactory", Address (InetSocketAddress(r_ipaddr, port)));
-      source.SetAttribute ("OnTime", StringValue ("ns3::ConstantRandomVariable[Constant=1]"));
-      source.SetAttribute ("OffTime", StringValue ("ns3::ConstantRandomVariable[Constant=0]"));
-      source.SetAttribute ("DataRate", DataRateValue (DataRate (link_data_rate)));
-      source.SetAttribute ("PacketSize", UintegerValue (packet_size));
-      InetSocketAddress tmp1 = InetSocketAddress (r_ipaddr, port);
-
-      tmp1.SetTos((0B00000010|(0xff&proi<<5)));
-
-      source.SetAttribute ("Remote", AddressValue(tmp1));
-      
-      // Set the amount of data to send in bytes according to the empirical distribution.  
-      //int tempsize = fsize.GetInteger();
-      
-
-      //std::cout << "flow size is " << tempsize << std::endl;
-      source.SetAttribute ("MaxBytes", UintegerValue (tempsize));
-      source.SetAttribute("PacketSize",UintegerValue (packet_size));
-
-      // packet_count += (tempsize / packet_size + 1);
-      
-      // Install sink 
-      PacketSinkHelper sink("ns3::TcpSocketFactory", Address(InetSocketAddress(Ipv4Address::GetAny(), port)));
-      sinkApps.Add(sink.Install(m_host.Get(nreceiver)));
-      Ptr<Application> the_sink = sinkApps.Get(sinkApps.GetN()-1);
-      the_sink->TraceConnectWithoutContext("Rx", MakeCallback (&PacketRecvEvent));
-      
-      // Install source to the sender
-      //NodeContainer onoff;
-      //onoff.Add(m_host.Get(nsender));
-      flows.Add(source.Install (m_host.Get(nsender)));
-      // Get the current flow
-      Ptr<Application> the_flow = flows.Get(flows.GetN()-1);
-      the_flow->SetStartTime(Seconds(tflow));
-      the_flow->TraceConnectWithoutContext("Tx", MakeCallback (&PacketSendEvent));
-
-      flows.Stop(Seconds(global_stop_time));
-      sinkApps.Start(Seconds(0));
-      sinkApps.Stop(Seconds(global_stop_time));
+    fs = &g_trace_file_backward;
   }
-  // g_flow_count[c] = packet_count;
-  // NS_LOG_INFO (Simulator::Now () << " " << g_flow_count[c] << " packets to send.");
-}
+  else if (c == g_counter - 1)
+  {
+    fs = &g_trace_file_forward;
+  }
+  else
+  {
+    NS_FATAL_ERROR (Simulator::Now() << " Check the usage.");
+  }
 
-void SendBackward (int c)
-{
-  NS_LOG_FUNCTION (Simulator::Now());
-  double tflow = 0.0;
-  uint32_t tempsize = 0;
-  int flow_count;
-  ApplicationContainer flows;
-  ApplicationContainer sinkApps;
-  uint16_t port = 10000;
-
-  g_trace_file_backward >> flow_count;
+  *fs >> flow_count;
   g_flow_count[c] = flow_count;
   NS_LOG_INFO (Simulator::Now() << " " << g_flow_count[c] << " flows to send.");
   for (int i=0;i<flow_count;i++)
   {
       int proi;
-      g_trace_file_backward >> nsender >> nreceiver >> proi >> tempsize >> tflow >> global_stop_time;
+      *fs >> nsender >> nreceiver >> proi >> tempsize >> tflow >> global_stop_time;
       nsender -= 20;
       nreceiver -= 20;
       tempsize *= 1000;
@@ -850,7 +782,7 @@ void NextIter ()
     NS_LOG_INFO (Simulator::Now() << " Starting Iter " << g_iter_count);
     g_trace_file_forward.seekg (ios::beg);
     g_trace_file_backward.seekg (ios::beg);
-    SendForward(g_counter++);
+    BatchSend(g_counter++);
   }
   else
   {
