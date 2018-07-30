@@ -89,7 +89,7 @@ QueueDiscContainer queueDiscs;
 std::stringstream filePlotQueue;
 std::stringstream filePlotQueueAvg;
 
-//2018.07.28 Modified Version
+//Start 2018.07.28 Modified Version
 uint32_t g_host_num = 0;
 uint32_t g_counter = 0;
 std::ifstream g_trace_file_forward;
@@ -99,6 +99,16 @@ uint64_t* g_recv_count;
 uint32_t g_iter_times = 0;
 uint32_t g_iter_count = 0;
 bool g_is_forward = true;
+
+void PacketSendEvent (Ptr<const Packet> p);
+void PacketRecvEvent (Ptr<const Packet> p, const Address &a);
+void BatchSend (uint32_t c);
+void InitApp (uint32_t k, uint32_t i, std::string trace_f, std::string trace_b);
+void NextIter ();
+void CleanUp ();
+void CountReset ();
+
+//End 2018.07.28 Modified Version
 
 void
 CheckQueueSize (Ptr<QueueDisc> queue)
@@ -184,16 +194,6 @@ CalculateThroughput (void)
   //cout << totalRx[flowIdTag.GetFlowId ()] << endl;
   
 }
-
-//2018.07.28 Modified Version
-
-void PacketSendEvent (Ptr<const Packet> p);
-void PacketRecvEvent (Ptr<const Packet> p, const Address &a);
-void BatchSend (uint32_t c);
-void InitApp (uint32_t k, uint32_t i, std::string trace_f, std::string trace_b);
-void NextIter ();
-void CleanUp ();
-void CountReset ();
 
 void
 BuildTopo (uint32_t k)
@@ -469,8 +469,7 @@ SetConfig ()
   
 }
 
-int
-main (int argc, char *argv[])
+int main (int argc, char *argv[])
 {
   // LogComponentEnable ("DctcpSocket", LOG_LEVEL_DEBUG);
   // fsize.CDF(10.0,0.5);
@@ -535,11 +534,12 @@ main (int argc, char *argv[])
   Config::SetDefault ("ns3::TcpSocket::InitialCwnd", UintegerValue (initCwnd));
   Config::SetDefault ("ns3::DctcpSocket::ECNLimit", BooleanValue (ecnLimit));
   BuildTopo (k);
+  //Start 2018.07.28 Modified Version
   //BuildAppsTest (k,trace);
-  //2018.07.28 Modified Version
   LogComponentEnable("DctcpTest", LOG_LEVEL_INFO);
   //LogComponentEnable("PacketSink", LOG_LEVEL_INFO);
   InitApp(k, 2, "trace/f.tr", "trace/b.tr");
+  //End 2018.07.28 Modified Version
 
   if (writePcap)
     {
@@ -693,17 +693,13 @@ void BatchSend (uint32_t c)
   ApplicationContainer sinkApps;
   uint16_t port = 10000;
 
-  if (c == g_counter + 1)
-  {
-    fs = &g_trace_file_backward;
-  }
-  else if (c == g_counter - 1)
+  if (g_is_forward)
   {
     fs = &g_trace_file_forward;
   }
   else
   {
-    NS_FATAL_ERROR (Simulator::Now() << " Check the usage.");
+    fs = &g_trace_file_backward;
   }
 
   *fs >> flow_count;
@@ -764,6 +760,10 @@ void InitApp (uint32_t k, uint32_t i, std::string trace_f, std::string trace_b)
   NS_LOG_FUNCTION (Simulator::Now());
   g_trace_file_forward.open(trace_f);
   g_trace_file_backward.open(trace_b);
+  if (!g_trace_file_forward || !g_trace_file_backward)
+  {
+    NS_FATAL_ERROR ("Cannot open trace file");
+  }
   g_host_num = k*k*k/4;
   g_iter_times = i;
   g_iter_count = 0;
