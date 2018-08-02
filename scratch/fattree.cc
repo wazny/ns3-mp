@@ -634,35 +634,38 @@ void PacketRecvEvent (Ptr<const Packet> p, const Address &a)
   bool lastPacket = p->FindFirstMatchingByteTag (f);
   if (lastPacket)
   {
+    uint32_t c; //ref to c in BatchSend ()
     if (g_is_forward)
     {
-        g_recv_count[g_counter-1] += 1;
-        NS_LOG_INFO (Simulator::Now() << " An F-Flow is Done. Num." << g_recv_count[g_counter - 1]);
-        if (g_recv_count[g_counter-1] == g_flow_count[g_counter -1])
+      c = g_counter - 1;
+      g_recv_count[c] += 1;
+      NS_LOG_INFO (Simulator::Now() << " An F-Flow is Done. Num." << g_recv_count[c]);
+      if (g_recv_count[c] == g_flow_count[c])
+      {
+        NS_LOG_INFO (Simulator::Now () << " An F-Layer is Done. Num." << g_counter);
+        //then another layer
+        if (g_counter < g_host_num - 1)
         {
-          NS_LOG_INFO (Simulator::Now () << " An F-Layer is Done. Num." << g_counter);
-          //then another layer
-          if (g_counter < g_host_num - 1)
-          {
-            NS_LOG_INFO (Simulator::Now () << " Next F-Layer.");
-            BatchSend (g_counter++);
-          }
-          else
-          {
-            NS_LOG_INFO (Simulator::Now () << " Turning to Backward.");
-            g_is_forward = false;
-            CountReset ();
-            BatchSend (g_counter--);
-          }
+          NS_LOG_INFO (Simulator::Now () << " Next F-Layer.");
+          BatchSend (g_counter++);
         }
+        else
+        {
+          NS_LOG_INFO (Simulator::Now () << " Turning to Backward.");
+          g_is_forward = false;
+          CountReset ();
+          BatchSend (g_counter--);
+        }
+      }
     }
     else
-    {   
-      g_recv_count[g_counter+1] += 1;
-      NS_LOG_INFO (Simulator::Now() << " An B-Flow is Done. Num." << g_recv_count[g_counter+1]);
-      if (g_recv_count[g_counter+1] == g_flow_count[g_counter+1])
+    {
+      c = g_counter + 1;
+      g_recv_count[c] += 1;
+      NS_LOG_INFO (Simulator::Now() << " An B-Flow is Done. Num." << g_recv_count[c]);
+      if (g_recv_count[c] == g_flow_count[c])
       {
-        NS_LOG_INFO (Simulator::Now () << " An B-Layer is Done. Num." << (g_host_num - 1 - g_counter));
+        NS_LOG_INFO (Simulator::Now () << " An B-Layer is Done. Num." << (g_host_num - c));
         //then another layer
         if (g_counter > 0)
         {
