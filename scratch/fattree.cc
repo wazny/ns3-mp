@@ -90,23 +90,20 @@ std::stringstream filePlotQueue;
 std::stringstream filePlotQueueAvg;
 
 //Start 2018.07.28 Modified Version
-uint32_t g_host_num = 0;
-uint32_t g_counter = 0;
-std::ifstream g_trace_file_forward;
-std::ifstream g_trace_file_backward;
-uint64_t* g_flow_count;
-uint64_t* g_recv_count;
-uint32_t g_iter_times = 0;
-uint32_t g_iter_count = 0;
-bool g_is_forward = true;
+uint32_t g_host_num;
+uint32_t g_counter;
+std::ifstream g_trace_file;
+uint32_t g_flow_count;
+uint32_t g_recv_count;
+uint32_t g_iter_times;
+uint32_t g_iter_count;
 
 void PacketSendEvent (Ptr<const Packet> p);
 void PacketRecvEvent (Ptr<const Packet> p, const Address &a);
-void BatchSend (uint32_t c);
-void InitApp (uint32_t k, uint32_t i, std::string trace_f, std::string trace_b);
+void BatchSend ();
+void InitApp (uint32_t k, uint32_t i, std::string trace_file);
 void NextIter ();
-void CleanUp ();
-void CountReset ();
+void UninitApp ();
 
 //End 2018.07.28 Modified Version
 
@@ -482,7 +479,7 @@ int main (int argc, char *argv[])
 
 
   std::string pathOut = "."; // Current directory
-  std::string trace = "trace/offerload_0.1.tr";
+  std::string trace = "trace/trace.tr";
   bool writeForPlot = false;
   bool writePcap = false;
   bool flowMonitor = true;
@@ -538,7 +535,7 @@ int main (int argc, char *argv[])
   //BuildAppsTest (k,trace);
   LogComponentEnable("DctcpTest", LOG_LEVEL_INFO);
   //LogComponentEnable("PacketSink", LOG_LEVEL_INFO);
-  InitApp(k, 2, "trace/f.tr", "trace/b.tr");
+  InitApp(k, 3, trace);
   //End 2018.07.28 Modified Version
 
   if (writePcap)
@@ -634,84 +631,45 @@ void PacketRecvEvent (Ptr<const Packet> p, const Address &a)
   bool lastPacket = p->FindFirstMatchingByteTag (f);
   if (lastPacket)
   {
-    uint32_t c; //ref to c in BatchSend ()
-    if (g_is_forward)
+    g_recv_count += 1;
+    NS_LOG_INFO (Simulator::Now() << " A Flow is Done. Num." << g_recv_count);
+    if (g_recv_count == g_flow_count)
     {
-      c = g_counter - 1;
-      g_recv_count[c] += 1;
-      NS_LOG_INFO (Simulator::Now() << " An F-Flow is Done. Num." << g_recv_count[c]);
-      if (g_recv_count[c] == g_flow_count[c])
+      u_int32_t l = (g_counter > g_host_num-2)?(g_counter-g_host_num+2):(g_counter+1);
+      NS_LOG_INFO (Simulator::Now () << " A Layer is Done. Num." << l);
+      g_recv_count = g_flow_count = 0;
+      if (g_counter++ > 2 * g_host_num - 4)
       {
-        NS_LOG_INFO (Simulator::Now () << " An F-Layer is Done. Num." << g_counter);
-        //then another layer
-        if (g_counter < g_host_num - 1)
-        {
-          NS_LOG_INFO (Simulator::Now () << " Next F-Layer.");
-          BatchSend (g_counter++);
-        }
-        else
-        {
-          NS_LOG_INFO (Simulator::Now () << " Turning to Backward.");
-          g_is_forward = false;
-          CountReset ();
-          BatchSend (g_counter--);
-        }
+        NS_LOG_INFO (Simulator::Now () << " An Iter is Done. Num." << g_iter_count);
+        NS_LOG_INFO (Simulator::Now () << " Next Iter.");
+        NextIter ();
       }
-    }
-    else
-    {
-      c = g_counter + 1;
-      g_recv_count[c] += 1;
-      NS_LOG_INFO (Simulator::Now() << " An B-Flow is Done. Num." << g_recv_count[c]);
-      if (g_recv_count[c] == g_flow_count[c])
+      else
       {
-        NS_LOG_INFO (Simulator::Now () << " An B-Layer is Done. Num." << (g_host_num - c));
-        //then another layer
-        if (g_counter > 0)
-        {
-          NS_LOG_INFO (Simulator::Now () << " Next B-Layer.");
-          BatchSend (g_counter--);
-        }
-        else
-        {
-          NS_LOG_INFO (Simulator::Now () << " Turning to Forward.");
-          g_is_forward = true;
-          CountReset ();
-          NextIter();
-        }
+        NS_LOG_INFO (Simulator::Now () << " Next Layer.");
+        BatchSend ();
       }
     }
   }
-
 }
 
-void BatchSend (uint32_t c)
+void BatchSend ()
 {
   NS_LOG_FUNCTION (Simulator::Now());
   double tflow = 0.0;
   uint32_t tempsize = 0;
   int flow_count;
-  std::ifstream *fs;
   ApplicationContainer flows;
   ApplicationContainer sinkApps;
   uint16_t port = 10000;
 
-  if (g_is_forward)
-  {
-    fs = &g_trace_file_forward;
-  }
-  else
-  {
-    fs = &g_trace_file_backward;
-  }
-
-  *fs >> flow_count;
-  g_flow_count[c] = flow_count;
-  NS_LOG_INFO (Simulator::Now() << " " << g_flow_count[c] << " flows to send.");
+  g_trace_file >> flow_count;
+  g_flow_count = flow_count;
+  NS_LOG_INFO (Simulator::Now() << " " << g_flow_count << " flows to send.");
   for (int i=0;i<flow_count;i++)
   {
       int proi;
-      *fs >> nsender >> nreceiver >> proi >> tempsize >> tflow >> global_stop_time;
+      g_trace_file >> nsender >> nreceiver >> proi >> tempsize >> tflow >> global_stop_time;
       nsender -= 20;
       nreceiver -= 20;
       tempsize *= 1000;
@@ -758,23 +716,21 @@ void BatchSend (uint32_t c)
   }
 }
 
-void InitApp (uint32_t k, uint32_t i, std::string trace_f, std::string trace_b)
+void InitApp (uint32_t k, uint32_t i, std::string trace_file)
 {
   NS_LOG_FUNCTION (Simulator::Now());
-  g_trace_file_forward.open(trace_f);
-  g_trace_file_backward.open(trace_b);
-  if (!g_trace_file_forward || !g_trace_file_backward)
+  g_trace_file.open(trace_file);
+  if (!g_trace_file)
   {
     NS_FATAL_ERROR ("Cannot open trace file");
   }
   g_host_num = k*k*k/4;
   g_iter_times = i;
   g_iter_count = 0;
-  g_flow_count = new uint64_t[g_host_num]();
-  g_recv_count = new uint64_t[g_host_num]();
-  g_is_forward = true;
+  g_flow_count = 0;
+  g_recv_count = 0;
   NextIter ();
-  Simulator::ScheduleDestroy(&CleanUp);
+  Simulator::ScheduleDestroy(&UninitApp);
 }
 
 void NextIter ()
@@ -782,10 +738,10 @@ void NextIter ()
   NS_LOG_FUNCTION (Simulator::Now());
   if (g_iter_count++ < g_iter_times)
   {
-    NS_LOG_INFO (Simulator::Now() << " Starting Iter " << g_iter_count);
-    g_trace_file_forward.seekg (ios::beg);
-    g_trace_file_backward.seekg (ios::beg);
-    BatchSend(g_counter++);
+    NS_LOG_INFO (Simulator::Now() << " Starting Iter " << g_iter_count << ".");
+    g_trace_file.seekg (ios::beg);
+    g_counter = 0;
+    BatchSend();
   }
   else
   {
@@ -794,20 +750,8 @@ void NextIter ()
   }
 }
 
-void CleanUp ()
+void UninitApp ()
 {
   NS_LOG_FUNCTION(Simulator::Now());
-  g_trace_file_forward.close();
-  g_trace_file_backward.close();
-}
-
-void CountReset ()
-{
-  if (g_host_num != 0)
-  {
-    for (uint32_t i = 0; i < g_host_num; i++)
-    {
-      g_flow_count[i] = g_recv_count[i] = 0;
-    }
-  }
+  g_trace_file.close();
 }
