@@ -46,3 +46,4 @@ massif.*
 .DS_Store
 .directory
 *.flowmon
+/.vscode
